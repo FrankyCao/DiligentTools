@@ -1103,6 +1103,11 @@ struct Model
                            Int32            AnimationIndex = -1,
                            float            Time           = 0) const;
 
+    void UpdateNodeWithGlobalTransform(Uint32           SceneIndex,
+                                        Uint32            NodeIndex,
+                                        ModelTransforms&  Transforms, 
+                                        const float4x4&   nodeTransformInRoot  = float4x4::Identity()) const;
+
     BoundBox ComputeBoundingBox(Uint32 SceneIndex, const ModelTransforms& Transforms) const;
 
     size_t GetTextureCount() const

@@ -2030,6 +2030,64 @@ static void UpdateNodeGlobalTransform(const Node& node, const float4x4& ParentMa
     }
 }
 
+void Model::UpdateNodeWithGlobalTransform(Uint32 SceneIndex,
+    Uint32            NodeIndex,
+    ModelTransforms& Transforms, 
+    const float4x4&  nodeTransformInRoot) const
+{
+    if (SceneIndex >= Scenes.size())
+    {
+        DEV_ERROR("Invalid scene index ", SceneIndex);
+        return;
+    }
+
+    const Scene& scene = Scenes[SceneIndex];
+    auto& node = scene.LinearNodes[NodeIndex];
+
+    float4x4 nodeLocalTransform = nodeTransformInRoot;
+    if (node->Parent) {
+        nodeLocalTransform *= Transforms.NodeGlobalMatrices[node->Parent->Index].Inverse();
+    }
+
+    Transforms.NodeGlobalMatrices[NodeIndex] = nodeTransformInRoot;
+    Transforms.NodeLocalMatrices[NodeIndex] = nodeLocalTransform;
+
+    for (const Node* pChild : node->Children)
+    {
+        UpdateNodeGlobalTransform(*pChild, nodeTransformInRoot, Transforms);
+    }
+
+    // Update join matrices
+    if (!Transforms.Skins.empty())
+    {
+        for (const Node* pNode : scene.LinearNodes)
+        {
+            VERIFY_EXPR(pNode != nullptr);
+            const Mesh* pMesh = pNode->pMesh;
+            const Skin* pSkin = pNode->pSkin;
+            if (pMesh == nullptr || pSkin == nullptr)
+                continue;
+
+            const float4x4& NodeGlobalMat = Transforms.NodeGlobalMatrices[pNode->Index];
+            VERIFY(pNode->SkinTransformsIndex < static_cast<int>(SkinTransformsCount),
+                   "Skin transform index (", pNode->SkinTransformsIndex, ") exceeds the skin transform count in this mesh (", SkinTransformsCount,
+                   "). This appears to be a bug.");
+            std::vector<float4x4>& JointMatrices = Transforms.Skins[pNode->SkinTransformsIndex].JointMatrices;
+            if (JointMatrices.size() != pSkin->Joints.size())
+                JointMatrices.resize(pSkin->Joints.size());
+
+            const float4x4 InverseTransform = NodeGlobalMat.Inverse();
+            for (size_t i = 0; i < pSkin->Joints.size(); i++)
+            {
+                const Node*     JointNode          = pSkin->Joints[i];
+                const float4x4& JointNodeGlobalMat = Transforms.NodeGlobalMatrices[JointNode->Index];
+                JointMatrices[i] =
+                    pSkin->InverseBindMatrices[i] * JointNodeGlobalMat * InverseTransform;
+            }
+        }
+    }
+}
+
 void Model::ComputeTransforms(Uint32           SceneIndex,
                               ModelTransforms& Transforms,
                               const float4x4&  RootTransform,
@@ -2047,16 +2105,17 @@ void Model::ComputeTransforms(Uint32           SceneIndex,
     // not the linear node index in the scene.
     Transforms.NodeGlobalMatrices.resize(Nodes.size());
     Transforms.NodeLocalMatrices.resize(Nodes.size());
-
+    Transforms.Skins.resize(SkinTransformsCount);
+    
     // Update node animation
     if (AnimationIndex >= 0)
     {
-        Transforms.Skins.resize(SkinTransformsCount);
+        // Transforms.Skins.resize(SkinTransformsCount);
         UpdateAnimation(SceneIndex, AnimationIndex, Time, Transforms);
     }
     else
     {
-        Transforms.Skins.clear();
+        // Transforms.Skins.clear();
         for (Node* pNode : scene.LinearNodes)
         {
             VERIFY_EXPR(pNode != nullptr);
